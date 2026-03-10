@@ -1,0 +1,93 @@
+<resources>
+    <string name="app_name">Sanraksha Alert</string>
+
+    <!-- Login Screen -->
+    <string name="enter_unique_id">Enter Your Unique ID</string>
+    <string name="login">Login</string>
+    <string name="create_account">Create New Account</string>
+    <string name="forgot_id">Forgot Unique ID?</string>
+
+    <!-- Main Screen -->
+    <string name="sos_button">SOS</string>
+    <string name="safety_mode">Safety Mode</string>
+    <string name="shake_detection">Shake Detection</string>
+    <string name="voice_recognition">Voice Recognition</string>
+    <string name="sound_detection">Sound Detection</string>
+    <string name="sos_active">SOS Alert Active!</string>
+    <string name="sending_alerts">Sending emergency alerts...</string>
+
+    <!-- Contacts Screen -->
+    <string name="contacts">Emergency Contacts</string>
+    <string name="add_contact">Add Contact</string>
+    <string name="no_contacts">No emergency contacts added</string>
+    <string name="add_first_contact">Add your first emergency contact</string>
+
+    <!-- Profile Screen -->
+    <string name="profile">Profile</string>
+    <string name="name">Name</string>
+    <string name="phone">Phone Number</string>
+    <string name="email">Email (Optional)</string>
+    <string name="blood_group">Blood Group</string>
+    <string name="age">Age</string>
+    <string name="save">Save</string>
+
+    <!-- Settings Screen -->
+    <string name="settings">Settings</string>
+    <string name="shake_sensitivity">Shake Sensitivity</string>
+    <string name="low">Low</string>
+    <string name="medium">Medium</string>
+    <string name="high">High</string>
+    <string name="sos_mode">SOS Mode (Voice Only)</string>
+    <string name="dark_mode">Dark Mode</string>
+    <string name="security_controls">Security Controls</string>
+    <string name="block_screenshots">Block Screenshots</string>
+    <string name="hide_sensitive_info">Hide Sensitive Info</string>
+    <string name="require_sos_confirmation">Require SOS Confirmation</string>
+    <string name="logout">Logout</string>
+    <string name="share_app">Share App</string>
+    <string name="rate_app">Rate App</string>
+    <string name="privacy_policy">Privacy Policy</string>
+
+    <!-- Dialogs -->
+    <string name="create_new_account">Create New Account</string>
+    <string name="enter_name">Enter Your Name</string>
+    <string name="enter_phone">Enter Phone Number (10 digits)</string>
+    <string name="create">Create</string>
+    <string name="cancel">Cancel</string>
+    <string name="your_unique_id">Your Unique ID</string>
+    <string name="save_this_id">Please save this ID for future login:</string>
+    <string name="ok">OK</string>
+
+    <string name="forgot_unique_id_title">Forgot Unique ID</string>
+    <string name="enter_registered_phone">Enter your registered phone number</string>
+    <string name="retrieve">Retrieve</string>
+
+    <string name="add_emergency_contact">Add Emergency Contact</string>
+    <string name="contact_name">Contact Name</string>
+    <string name="contact_phone">Contact Phone</string>
+    <string name="add">Add</string>
+
+    <!-- Messages -->
+    <string name="login_failed">Login failed. Please check your ID.</string>
+    <string name="invalid_phone">Please enter a valid 10-digit phone number</string>
+    <string name="account_created">Account created successfully!</string>
+    <string name="id_sent_via_sms">Your Unique ID has been sent via SMS</string>
+    <string name="phone_not_found">Phone number not found. Would you like to create an account?</string>
+    <string name="contact_added">Contact added successfully</string>
+    <string name="contact_deleted">Contact deleted</string>
+    <string name="profile_updated">Profile updated successfully</string>
+    <string name="permission_required">Permission required for this feature</string>
+    <string name="sos_triggered">SOS Alert Triggered!</string>
+    <string name="alerts_sent">Emergency alerts sent to all contacts</string>
+
+    <!-- Service -->
+    <string name="sos_monitoring_active">SOS Monitoring Active</string>
+    <string name="monitoring_for_emergencies">Monitoring for emergency triggers</string>
+
+    <!-- Bottom Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_contacts">Contacts</string>
+    <string name="nav_profile">Profile</string>
+    <string name="nav_settings">Settings</string>
+    <string name="dummy_map_preview">Dummy map preview</string>
+</resources>

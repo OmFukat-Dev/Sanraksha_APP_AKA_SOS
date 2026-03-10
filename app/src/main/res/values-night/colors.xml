@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#EF5350</color>
+    <color name="primary_dark">#C62828</color>
+    <color name="primary_light">#8E2A2A</color>
+    <color name="accent">#FF8A80</color>
+    <color name="gradient_start">#161A1D</color>
+    <color name="gradient_end">#1F252A</color>
+    <color name="card_surface">#1F262B</color>
+    <color name="card_stroke">#33FFFFFF</color>
+    <color name="nav_active">#FF8A80</color>
+    <color name="nav_inactive">#7C858C</color>
+    <color name="text_muted">#A6B0B8</color>
+    <color name="background_light">#121212</color>
+    <color name="background_dark">#0F0F0F</color>
+    <color name="surface_light">#1D1D1D</color>
+    <color name="surface_dark">#121212</color>
+    <color name="text_primary_light">#FFFFFF</color>
+    <color name="text_primary_dark">#FFFFFF</color>
+    <color name="text_secondary_light">#B0B0B0</color>
+    <color name="text_secondary_dark">#B0B0B0</color>
+    <color name="success">#4CAF50</color>
+    <color name="warning">#FFB74D</color>
+    <color name="error">#EF5350</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+</resources>
