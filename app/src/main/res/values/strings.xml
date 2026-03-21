@@ -13,6 +13,7 @@
     <string name="shake_detection">Shake Detection</string>
     <string name="voice_recognition">Voice Recognition</string>
     <string name="sound_detection">Sound Detection</string>
+    <string name="kidnapping_mode">Kidnapping Mode</string>
     <string name="sos_active">SOS Alert Active!</string>
     <string name="sending_alerts">Sending emergency alerts...</string>
 

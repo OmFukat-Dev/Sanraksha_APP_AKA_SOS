@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 
 object PermissionHelper {
     const val PERMISSION_REQUEST_CODE = 100
+    const val LOCATION_PERMISSION_REQUEST_CODE = 101
 
     private fun requiredPermissions(): Array<String> {
         val permissions = mutableListOf(
@@ -35,6 +36,29 @@ object PermissionHelper {
             activity,
             requiredPermissions(),
             PERMISSION_REQUEST_CODE
+        )
+    }
+
+    fun checkLocationPermissions(activity: Activity): Boolean {
+        val fineGranted = ContextCompat.checkSelfPermission(
+            activity,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            activity,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        return fineGranted || coarseGranted
+    }
+
+    fun requestLocationPermissions(activity: Activity) {
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ),
+            LOCATION_PERMISSION_REQUEST_CODE
         )
     }
 

@@ -6,6 +6,7 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "contacts",
+    indices = [androidx.room.Index(value = ["userId"])],
     foreignKeys = [
         ForeignKey(
             entity = User::class,

@@ -1,12 +1,12 @@
 package com.sanraksha.sosapp.utils
 
+import android.content.Context
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
-import java.io.File
 
 class SoundDetector(
-    private val cacheDir: File,
+    private val context: Context,
     private val onScreamDetected: () -> Unit
 ) {
     private var mediaRecorder: MediaRecorder? = null
@@ -25,11 +25,12 @@ class SoundDetector(
 
     fun start() {
         try {
-            mediaRecorder = MediaRecorder().apply {
+            val outputFile = java.io.File(context.cacheDir, "temp_audio.3gp").absolutePath
+            mediaRecorder = MediaRecorder(context).apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-                setOutputFile(File(cacheDir, "temp_audio.3gp").absolutePath)
+                setOutputFile(outputFile)
                 prepare()
                 start()
             }

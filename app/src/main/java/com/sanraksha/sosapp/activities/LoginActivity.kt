@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.LayoutInflater
-import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -28,8 +27,8 @@ import kotlin.random.Random
 class LoginActivity : AppCompatActivity() {
 
     private lateinit var etUniqueId: EditText
-    private lateinit var btnLogin: Button
-    private lateinit var btnCreateAccount: Button
+    private lateinit var btnLogin: TextView
+    private lateinit var btnCreateAccount: TextView
     private lateinit var btnForgotId: TextView
 
     private lateinit var database: AppDatabase

@@ -20,6 +20,7 @@ class PrefManager(context: Context) {
         private const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"
         private const val KEY_HIDE_SENSITIVE_INFO = "hide_sensitive_info"
         private const val KEY_REQUIRE_SOS_CONFIRMATION = "require_sos_confirmation"
+        private const val KEY_KIDNAPPING_MODE = "kidnapping_mode"
     }
 
     var isLoggedIn: Boolean
@@ -69,6 +70,10 @@ class PrefManager(context: Context) {
     var requireSosConfirmation: Boolean
         get() = prefs.getBoolean(KEY_REQUIRE_SOS_CONFIRMATION, true)
         set(value) = prefs.edit().putBoolean(KEY_REQUIRE_SOS_CONFIRMATION, value).apply()
+
+    var kidnappingMode: Boolean
+        get() = prefs.getBoolean(KEY_KIDNAPPING_MODE, false)
+        set(value) = prefs.edit().putBoolean(KEY_KIDNAPPING_MODE, value).apply()
 
     fun logout() {
         prefs.edit().clear().apply()

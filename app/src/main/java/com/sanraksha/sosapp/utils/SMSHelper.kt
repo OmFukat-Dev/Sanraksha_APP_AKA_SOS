@@ -19,7 +19,12 @@ class SMSHelper(private val context: Context) {
             }
 
             val smsManager = context.getSystemService(SmsManager::class.java)
-            smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+            val parts = smsManager.divideMessage(message)
+            if (parts.size > 1) {
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+            } else {
+                smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+            }
             true
         } catch (e: Exception) {
             e.printStackTrace()

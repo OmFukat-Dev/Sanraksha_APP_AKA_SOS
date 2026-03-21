@@ -3,6 +3,7 @@ package com.sanraksha.sosapp.activities
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.location.Location
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -15,12 +16,19 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import android.os.Build
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.sanraksha.sosapp.R
 import com.sanraksha.sosapp.database.AppDatabase
 import com.sanraksha.sosapp.services.SOSMonitoringService
+import com.sanraksha.sosapp.utils.KidnappingPathEvents
+import com.sanraksha.sosapp.utils.KidnappingPathStore
 import com.sanraksha.sosapp.utils.LocationHelper
 import com.sanraksha.sosapp.utils.PrefManager
 import com.sanraksha.sosapp.utils.PermissionHelper
@@ -29,6 +37,11 @@ import com.sanraksha.sosapp.utils.ThemeUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -40,10 +53,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvGuardianName: TextView
     private lateinit var tvGuardianMeta: TextView
     private lateinit var tvSosStateChip: TextView
-    private lateinit var tvEtaPolice: TextView
-    private lateinit var tvEtaAmbulance: TextView
-    private lateinit var tvEtaFire: TextView
     private lateinit var ivDummyMap: ImageView
+    private lateinit var mapView: MapView
+    private lateinit var btnKidnapping: Button
     private lateinit var switchSafetyMode: SwitchMaterial
     private lateinit var switchShake: SwitchMaterial
     private lateinit var switchVoice: SwitchMaterial
@@ -54,12 +66,34 @@ class MainActivity : AppCompatActivity() {
     private lateinit var database: AppDatabase
     private lateinit var sosTriggerManager: SOSTriggerManager
     private lateinit var locationHelper: LocationHelper
+    private lateinit var pathStore: KidnappingPathStore
 
     private var isSOSActive = false
     private var countdown = 30
     private val handler = Handler(Looper.getMainLooper())
     private var isInitializingSettings = false
     private var lastKnownLocation: Pair<Double, Double>? = null
+    private var pathPolyline: Polyline? = null
+    private val pathMarkers = mutableListOf<Marker>()
+    private val pathPoints = mutableListOf<GeoPoint>()
+    private var currentLocationMarker: Marker? = null
+    private var lastCameraUpdateMs = 0L
+    private var locationUpdatesActive = false
+
+    private val kidnappingPathReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                KidnappingPathEvents.ACTION_RESET -> resetKidnappingPath()
+                KidnappingPathEvents.ACTION_NEW_POINT -> {
+                    val lat = intent.getDoubleExtra(KidnappingPathEvents.EXTRA_LAT, Double.NaN)
+                    val lon = intent.getDoubleExtra(KidnappingPathEvents.EXTRA_LON, Double.NaN)
+                    if (!lat.isFinite() || !lon.isFinite()) return
+                    addKidnappingPointToMap(GeoPoint(lat, lon))
+                }
+                else -> return
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         ThemeUtils.applySavedTheme(this)
@@ -70,6 +104,7 @@ class MainActivity : AppCompatActivity() {
         database = AppDatabase.getDatabase(this)
         sosTriggerManager = SOSTriggerManager(this)
         locationHelper = LocationHelper(this)
+        pathStore = KidnappingPathStore.getInstance(this)
 
         initViews()
         setupMap()
@@ -88,13 +123,9 @@ class MainActivity : AppCompatActivity() {
         tvGuardianName = findViewById(R.id.tvGuardianName)
         tvGuardianMeta = findViewById(R.id.tvGuardianMeta)
         tvSosStateChip = findViewById(R.id.tvSosStateChip)
-        tvEtaPolice = findViewById(R.id.tvEtaPolice)
-        tvEtaAmbulance = findViewById(R.id.tvEtaAmbulance)
-        tvEtaFire = findViewById(R.id.tvEtaFire)
-        tvEtaPolice.visibility = View.GONE
-        tvEtaAmbulance.visibility = View.GONE
-        tvEtaFire.visibility = View.GONE
         ivDummyMap = findViewById(R.id.ivDummyMap)
+        mapView = findViewById(R.id.mapView)
+        btnKidnapping = findViewById(R.id.btnKidnapping)
         switchSafetyMode = findViewById(R.id.switchSafetyMode)
         switchShake = findViewById(R.id.switchShake)
         switchVoice = findViewById(R.id.switchVoice)
@@ -111,6 +142,21 @@ class MainActivity : AppCompatActivity() {
             } else {
                 cancelSOS()
             }
+        }
+
+        btnKidnapping.setOnClickListener {
+            val enabled = !prefManager.kidnappingMode
+            prefManager.kidnappingMode = enabled
+            if (enabled) {
+                startKidnappingMode()
+                startMonitoringService()
+            } else {
+                sosTriggerManager.stopKidnappingTracking()
+                if (!prefManager.safetyMode) {
+                    stopMonitoringService()
+                }
+            }
+            updateKidnappingButtonState()
         }
 
         switchSafetyMode.setOnCheckedChangeListener { _, isChecked ->
@@ -134,6 +180,7 @@ class MainActivity : AppCompatActivity() {
         switchSound.setOnCheckedChangeListener { _, isChecked ->
             prefManager.soundEnabled = isChecked
         }
+
 
         bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
@@ -164,6 +211,7 @@ class MainActivity : AppCompatActivity() {
         switchShake.isChecked = prefManager.shakeEnabled
         switchVoice.isChecked = prefManager.voiceEnabled
         switchSound.isChecked = prefManager.soundEnabled
+        updateKidnappingButtonState()
         isInitializingSettings = false
 
         // Auto-resume monitoring only when permissions are already granted.
@@ -173,7 +221,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupMap() {
+        mapView.setTileSource(TileSourceFactory.MAPNIK)
+        mapView.setMultiTouchControls(true)
+        mapView.setTilesScaledToDpi(true)
+        mapView.controller.setZoom(15.0)
         ivDummyMap.setOnClickListener { openCurrentLocationInMaps() }
+        updateMapVisibility(hasLocationPermission())
+        applyStoredKidnappingPath()
     }
 
     private fun loadGuardianUserInfo() {
@@ -208,10 +262,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissions() {
-        if (!PermissionHelper.checkPermissions(this)) {
-            PermissionHelper.requestPermissions(this)
+        if (!PermissionHelper.checkLocationPermissions(this)) {
+            PermissionHelper.requestLocationPermissions(this)
+            updateMapVisibility(false)
         } else {
+            updateMapVisibility(true)
             loadCurrentLocation()
+            startLocationUpdatesIfPossible()
         }
     }
 
@@ -223,15 +280,11 @@ class MainActivity : AppCompatActivity() {
 
             if (location != null) {
                 lastKnownLocation = location
-                val precision = if (prefManager.hideSensitiveInfo) 3 else 5
-                val lat = String.format(Locale.US, "%.${precision}f", location.first)
-                val lon = String.format(Locale.US, "%.${precision}f", location.second)
-                tvLocationHeader.text = "GPS Location: $lat, $lon"
-                tvLocationMarker.text = "MARKED: user pinned at $lat, $lon"
+                updateLocationUi(location.first, location.second, null)
                 updateMapLocation(location.first, location.second)
             } else {
                 tvLocationHeader.text = "GPS Location: unavailable"
-                tvLocationMarker.text = "MARKED: location permission needed"
+                tvLocationMarker.text = "MARKED: location unavailable"
             }
         }
     }
@@ -267,7 +320,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateMapLocation(latitude: Double, longitude: Double) {
-        // Static image mode: no live map rendering.
+        val position = GeoPoint(latitude, longitude)
+        if (currentLocationMarker == null) {
+            currentLocationMarker = Marker(mapView).apply {
+                this.position = position
+                title = "Current Location"
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            }
+            mapView.overlays.add(currentLocationMarker)
+        } else {
+            currentLocationMarker?.position = position
+        }
+        updateCamera(position, force = false)
+        mapView.invalidate()
     }
 
     private fun openCurrentLocationInMaps() {
@@ -320,7 +385,23 @@ class MainActivity : AppCompatActivity() {
         btnSOS.backgroundTintList = null
         tvCountdown.text = ""
         sosTriggerManager.stopSiren()
+        sosTriggerManager.stopSosLocationUpdates()
         updateSOSStateChip()
+    }
+
+    private fun startKidnappingMode() {
+        Toast.makeText(this@MainActivity, "Kidnapping mode active", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateKidnappingButtonState() {
+        if (prefManager.kidnappingMode) {
+            btnKidnapping.text = "KIDNAPPING ACTIVE"
+            btnKidnapping.backgroundTintList = ColorStateList.valueOf(getColor(R.color.error))
+        } else {
+            btnKidnapping.text = getString(R.string.kidnapping_mode)
+            btnKidnapping.backgroundTintList = ColorStateList.valueOf(getColor(R.color.success))
+        }
+        btnKidnapping.setTextColor(getColor(android.R.color.white))
     }
 
     private fun triggerSOS() {
@@ -332,7 +413,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (user != null) {
-                    sosTriggerManager.triggerSOS(userId, user.name)
+                    sosTriggerManager.triggerSOS(userId, user.name, prefManager.kidnappingMode)
                     Toast.makeText(this@MainActivity, "SOS Alert Sent!", Toast.LENGTH_LONG).show()
                 }
 
@@ -348,9 +429,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMonitoringService() {
-        if (!PermissionHelper.checkPermissions(this)) {
+        if (!hasLocationPermission()) {
             PermissionHelper.requestPermissions(this)
             return
+        }
+
+        if (prefManager.safetyMode && (prefManager.voiceEnabled || prefManager.soundEnabled)) {
+            if (!PermissionHelper.checkPermissions(this)) {
+                PermissionHelper.requestPermissions(this)
+                return
+            }
         }
         try {
             val intent = Intent(this, SOSMonitoringService::class.java)
@@ -366,6 +454,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun hasLocationPermission(): Boolean {
+        return PermissionHelper.hasPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) ||
+                PermissionHelper.hasPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+    }
+
     private fun updateSOSStateChip() {
         if (isSOSActive) {
             tvSosStateChip.text = "SOS ACTIVE"
@@ -378,6 +471,54 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun startLocationUpdatesIfPossible() {
+        if (locationUpdatesActive || !hasLocationPermission()) {
+            return
+        }
+        val started = locationHelper.startLocationUpdates { location ->
+            handleLiveLocation(location)
+        }
+        locationUpdatesActive = started
+        if (!started) {
+            tvLocationHeader.text = "GPS Location: disabled"
+            tvLocationMarker.text = "MARKED: enable GPS for live tracking"
+            updateMapVisibility(false)
+        }
+    }
+
+    private fun stopLocationUpdatesIfNeeded() {
+        if (!locationUpdatesActive) return
+        locationHelper.stopLocationUpdates()
+        locationUpdatesActive = false
+    }
+
+    private fun handleLiveLocation(location: Location) {
+        lastKnownLocation = Pair(location.latitude, location.longitude)
+        updateLocationUi(location.latitude, location.longitude, location.accuracy)
+        updateMapLocation(location.latitude, location.longitude)
+    }
+
+    private fun updateLocationUi(latitude: Double, longitude: Double, accuracy: Float?) {
+        val precision = if (prefManager.hideSensitiveInfo) 3 else 5
+        val lat = String.format(Locale.US, "%.${precision}f", latitude)
+        val lon = String.format(Locale.US, "%.${precision}f", longitude)
+        val accuracyText = accuracy?.takeIf { it > 0f }?.let { " (+/-${it.toInt()}m)" } ?: ""
+        tvLocationHeader.text = "GPS Location: $lat, $lon$accuracyText"
+        tvLocationMarker.text = "MARKED: user pinned at $lat, $lon"
+    }
+
+    private fun updateMapVisibility(hasPermission: Boolean) {
+        if (hasPermission) {
+            mapView.visibility = View.VISIBLE
+            ivDummyMap.visibility = View.GONE
+        } else {
+            mapView.visibility = View.GONE
+            ivDummyMap.visibility = View.VISIBLE
+            tvLocationHeader.text = "GPS Location: permission required"
+            tvLocationMarker.text = "MARKED: location permission needed"
+        }
+    }
+
     private fun stopMonitoringService() {
         val intent = Intent(this, SOSMonitoringService::class.java)
         stopService(intent)
@@ -385,22 +526,47 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        mapView.onResume()
         applyScreenshotSecurity()
         loadGuardianUserInfo()
-        loadCurrentLocation()
+        if (hasLocationPermission()) {
+            loadCurrentLocation()
+            startLocationUpdatesIfPossible()
+        } else {
+            updateMapVisibility(false)
+        }
         bottomNav.selectedItemId = R.id.nav_home
     }
 
     override fun onStart() {
         super.onStart()
+        val filter = IntentFilter().apply {
+            addAction(KidnappingPathEvents.ACTION_NEW_POINT)
+            addAction(KidnappingPathEvents.ACTION_RESET)
+        }
+        ContextCompat.registerReceiver(
+            this,
+            kidnappingPathReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        if (hasLocationPermission()) {
+            startLocationUpdatesIfPossible()
+        } else {
+            updateMapVisibility(false)
+        }
+        applyStoredKidnappingPath()
     }
 
     override fun onPause() {
         super.onPause()
+        mapView.onPause()
     }
 
     override fun onStop() {
         super.onStop()
+        stopLocationUpdatesIfNeeded()
+        unregisterReceiver(kidnappingPathReceiver)
     }
 
     override fun onLowMemory() {
@@ -409,7 +575,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        mapView.onDetach()
         handler.removeCallbacksAndMessages(null)
+        sosTriggerManager.shutdown()
     }
 
     override fun onRequestPermissionsResult(
@@ -418,14 +586,23 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PermissionHelper.LOCATION_PERMISSION_REQUEST_CODE) {
+            val allGranted = grantResults.isNotEmpty() &&
+                    grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            if (allGranted) {
+                loadCurrentLocation()
+                updateMapVisibility(true)
+                startLocationUpdatesIfPossible()
+            } else {
+                updateMapVisibility(false)
+            }
+            return
+        }
         if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
             val allGranted = grantResults.isNotEmpty() &&
                     grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             if (allGranted && switchSafetyMode.isChecked) {
                 startMonitoringService()
-                loadCurrentLocation()
-            } else if (allGranted) {
-                loadCurrentLocation()
             } else if (!allGranted && switchSafetyMode.isChecked) {
                 prefManager.safetyMode = false
                 switchSafetyMode.isChecked = false
@@ -440,5 +617,73 @@ class MainActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+    }
+    private fun applyStoredKidnappingPath() {
+        if (!prefManager.kidnappingMode) {
+            resetKidnappingPath()
+            return
+        }
+        if (pathPoints.isNotEmpty()) return
+        lifecycleScope.launch {
+            val points = withContext(Dispatchers.IO) { pathStore.getPoints() }
+            if (points.isEmpty()) return@launch
+            points.forEach { point ->
+                val geoPoint = GeoPoint(point.lat, point.lon)
+                pathPoints.add(geoPoint)
+                val marker = Marker(mapView).apply {
+                    position = geoPoint
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                }
+                pathMarkers.add(marker)
+                mapView.overlays.add(marker)
+            }
+            pathPolyline = Polyline().apply {
+                outlinePaint.color = getColor(R.color.error)
+                outlinePaint.strokeWidth = 6f
+                setPoints(pathPoints)
+            }
+            mapView.overlays.add(pathPolyline)
+            updateCamera(pathPoints.last(), force = true)
+            mapView.invalidate()
+        }
+    }
+
+    private fun addKidnappingPointToMap(point: GeoPoint) {
+        pathPoints.add(point)
+        // Keep every marker visible while kidnapping mode is active.
+        val marker = Marker(mapView).apply {
+            position = point
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        }
+        pathMarkers.add(marker)
+        mapView.overlays.add(marker)
+        if (pathPolyline == null) {
+            pathPolyline = Polyline().apply {
+                outlinePaint.color = getColor(R.color.error)
+                outlinePaint.strokeWidth = 6f
+                setPoints(pathPoints)
+            }
+            mapView.overlays.add(pathPolyline)
+        } else {
+            pathPolyline?.setPoints(pathPoints)
+        }
+        updateCamera(point, force = false)
+        mapView.invalidate()
+    }
+
+    private fun resetKidnappingPath() {
+        pathMarkers.forEach { it.remove(mapView) }
+        pathMarkers.clear()
+        pathPoints.clear()
+        pathPolyline?.let { mapView.overlays.remove(it) }
+        pathPolyline = null
+        mapView.invalidate()
+    }
+
+    private fun updateCamera(position: GeoPoint, force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastCameraUpdateMs < 5_000L) return
+        lastCameraUpdateMs = now
+        mapView.controller.setCenter(position)
     }
 }
