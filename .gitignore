@@ -20,3 +20,6 @@ Thumbs.db
 
 # Temp
 _tmp_gradle/
+
+.gradle_user/
+
