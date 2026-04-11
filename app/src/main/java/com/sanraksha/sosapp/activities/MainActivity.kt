@@ -1,5 +1,6 @@
 package com.sanraksha.sosapp.activities
 
+import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -18,7 +19,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import android.os.Build
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
@@ -79,6 +79,7 @@ class MainActivity : AppCompatActivity() {
     private var currentLocationMarker: Marker? = null
     private var lastCameraUpdateMs = 0L
     private var locationUpdatesActive = false
+    private var kidnappingReceiverRegistered = false
 
     private val kidnappingPathReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -151,8 +152,9 @@ class MainActivity : AppCompatActivity() {
                 startKidnappingMode()
                 startMonitoringService()
             } else {
-                sosTriggerManager.stopKidnappingTracking()
-                if (!prefManager.safetyMode) {
+                if (prefManager.safetyMode) {
+                    startMonitoringService()
+                } else {
                     stopMonitoringService()
                 }
             }
@@ -160,9 +162,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         switchSafetyMode.setOnCheckedChangeListener { _, isChecked ->
-            prefManager.safetyMode = isChecked
             if (isInitializingSettings) return@setOnCheckedChangeListener
+            prefManager.safetyMode = isChecked
             if (isChecked) {
+                startMonitoringService()
+            } else if (prefManager.kidnappingMode) {
                 startMonitoringService()
             } else {
                 stopMonitoringService()
@@ -170,15 +174,27 @@ class MainActivity : AppCompatActivity() {
         }
 
         switchShake.setOnCheckedChangeListener { _, isChecked ->
+            if (isInitializingSettings) return@setOnCheckedChangeListener
             prefManager.shakeEnabled = isChecked
+            if (prefManager.safetyMode) {
+                startMonitoringService()
+            }
         }
 
         switchVoice.setOnCheckedChangeListener { _, isChecked ->
+            if (isInitializingSettings) return@setOnCheckedChangeListener
             prefManager.voiceEnabled = isChecked
+            if (prefManager.safetyMode) {
+                startMonitoringService()
+            }
         }
 
         switchSound.setOnCheckedChangeListener { _, isChecked ->
+            if (isInitializingSettings) return@setOnCheckedChangeListener
             prefManager.soundEnabled = isChecked
+            if (prefManager.safetyMode) {
+                startMonitoringService()
+            }
         }
 
 
@@ -214,8 +230,10 @@ class MainActivity : AppCompatActivity() {
         updateKidnappingButtonState()
         isInitializingSettings = false
 
-        // Auto-resume monitoring only when permissions are already granted.
-        if (prefManager.safetyMode && PermissionHelper.checkPermissions(this)) {
+        // Auto-resume monitoring only when required permissions are already granted.
+        if ((prefManager.safetyMode || prefManager.kidnappingMode) &&
+            PermissionHelper.hasRequiredMonitoringPermissions(this, requiresMicrophoneMonitoring())
+        ) {
             startMonitoringService()
         }
     }
@@ -349,10 +367,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (mapIntent.resolveActivity(packageManager) != null) {
-            startActivity(mapIntent)
+            try {
+                startActivity(mapIntent)
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(this, "No maps app available on this device", Toast.LENGTH_SHORT).show()
+            }
         } else {
             val webUri = Uri.parse(locationHelper.getLocationString(lat, lon))
-            startActivity(Intent(Intent.ACTION_VIEW, webUri))
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, webUri))
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(this, "No browser available to open maps", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -378,14 +404,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun cancelSOS() {
+        resetSOSUi()
+        sosTriggerManager.stopSiren()
+        sosTriggerManager.stopSosLocationUpdates()
+    }
+
+    private fun resetSOSUi() {
         isSOSActive = false
         handler.removeCallbacksAndMessages(null)
         btnSOS.text = getString(R.string.sos_button)
         btnSOS.setBackgroundResource(R.drawable.bg_sos_neon_button)
         btnSOS.backgroundTintList = null
         tvCountdown.text = ""
-        sosTriggerManager.stopSiren()
-        sosTriggerManager.stopSosLocationUpdates()
         updateSOSStateChip()
     }
 
@@ -414,12 +444,12 @@ class MainActivity : AppCompatActivity() {
 
                 if (user != null) {
                     sosTriggerManager.triggerSOS(userId, user.name, prefManager.kidnappingMode)
-                    Toast.makeText(this@MainActivity, "SOS Alert Sent!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "Sending SOS alerts...", Toast.LENGTH_LONG).show()
                 }
 
                 // Reset UI after 30 seconds
                 handler.postDelayed({
-                    cancelSOS()
+                    resetSOSUi()
                 }, 30000)
 
             } catch (e: Exception) {
@@ -429,29 +459,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMonitoringService() {
+        val needsMicrophone = requiresMicrophoneMonitoring()
         if (!hasLocationPermission()) {
-            PermissionHelper.requestPermissions(this)
+            PermissionHelper.requestLocationPermissions(this)
             return
         }
 
-        if (prefManager.safetyMode && (prefManager.voiceEnabled || prefManager.soundEnabled)) {
-            if (!PermissionHelper.checkPermissions(this)) {
-                PermissionHelper.requestPermissions(this)
-                return
-            }
+        if (!PermissionHelper.hasRequiredMonitoringPermissions(this, needsMicrophone)) {
+            PermissionHelper.requestMonitoringPermissions(this, needsMicrophone)
+            return
         }
         try {
             val intent = Intent(this, SOSMonitoringService::class.java)
             startForegroundService(intent)
         } catch (e: Exception) {
-            prefManager.safetyMode = false
-            switchSafetyMode.isChecked = false
+            disableSafetyMode()
+            disableKidnappingMode()
+            stopMonitoringService()
             Toast.makeText(
                 this,
                 "Unable to start safety monitoring on this device",
                 Toast.LENGTH_SHORT
             ).show()
         }
+    }
+
+    private fun requiresMicrophoneMonitoring(): Boolean {
+        return prefManager.safetyMode && (prefManager.voiceEnabled || prefManager.soundEnabled)
     }
 
     private fun hasLocationPermission(): Boolean {
@@ -535,6 +569,12 @@ class MainActivity : AppCompatActivity() {
         } else {
             updateMapVisibility(false)
         }
+        updateKidnappingButtonState()
+        if ((prefManager.safetyMode || prefManager.kidnappingMode) &&
+            PermissionHelper.hasRequiredMonitoringPermissions(this, requiresMicrophoneMonitoring())
+        ) {
+            startMonitoringService()
+        }
         bottomNav.selectedItemId = R.id.nav_home
     }
 
@@ -550,6 +590,7 @@ class MainActivity : AppCompatActivity() {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        kidnappingReceiverRegistered = true
         if (hasLocationPermission()) {
             startLocationUpdatesIfPossible()
         } else {
@@ -566,7 +607,10 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         stopLocationUpdatesIfNeeded()
-        unregisterReceiver(kidnappingPathReceiver)
+        if (kidnappingReceiverRegistered) {
+            unregisterReceiver(kidnappingPathReceiver)
+            kidnappingReceiverRegistered = false
+        }
     }
 
     override fun onLowMemory() {
@@ -577,7 +621,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         mapView.onDetach()
         handler.removeCallbacksAndMessages(null)
-        sosTriggerManager.shutdown()
     }
 
     override fun onRequestPermissionsResult(
@@ -587,28 +630,46 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PermissionHelper.LOCATION_PERMISSION_REQUEST_CODE) {
-            val allGranted = grantResults.isNotEmpty() &&
-                    grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            if (allGranted) {
+            val locationGranted = permissions.indices.any { index ->
+                val permission = permissions[index]
+                grantResults.getOrNull(index) == PackageManager.PERMISSION_GRANTED &&
+                        (permission == android.Manifest.permission.ACCESS_FINE_LOCATION ||
+                                permission == android.Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+            if (locationGranted) {
                 loadCurrentLocation()
                 updateMapVisibility(true)
                 startLocationUpdatesIfPossible()
+                if (prefManager.safetyMode || prefManager.kidnappingMode) {
+                    startMonitoringService()
+                }
             } else {
                 updateMapVisibility(false)
+                disableSafetyMode()
+                disableKidnappingMode()
+                stopMonitoringService()
+                Toast.makeText(
+                    this,
+                    "Location permission is required for live safety monitoring.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             return
         }
         if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
-            val allGranted = grantResults.isNotEmpty() &&
-                    grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            if (allGranted && switchSafetyMode.isChecked) {
+            val monitoringReady = PermissionHelper.hasRequiredMonitoringPermissions(
+                this,
+                requiresMicrophoneMonitoring()
+            )
+            if (monitoringReady && (switchSafetyMode.isChecked || prefManager.kidnappingMode)) {
                 startMonitoringService()
-            } else if (!allGranted && switchSafetyMode.isChecked) {
-                prefManager.safetyMode = false
-                switchSafetyMode.isChecked = false
+            } else if (!monitoringReady && (switchSafetyMode.isChecked || prefManager.kidnappingMode)) {
+                disableSafetyMode()
+                disableKidnappingMode()
+                stopMonitoringService()
                 Toast.makeText(
                     this,
-                    "Required permissions were denied. Safety mode disabled.",
+                    "Required permissions were denied. Monitoring has been turned off.",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -685,5 +746,21 @@ class MainActivity : AppCompatActivity() {
         if (!force && now - lastCameraUpdateMs < 5_000L) return
         lastCameraUpdateMs = now
         mapView.controller.setCenter(position)
+    }
+
+    private fun disableSafetyMode() {
+        if (!prefManager.safetyMode && !switchSafetyMode.isChecked) return
+        prefManager.safetyMode = false
+        val wasInitializing = isInitializingSettings
+        isInitializingSettings = true
+        switchSafetyMode.isChecked = false
+        isInitializingSettings = wasInitializing
+    }
+
+    private fun disableKidnappingMode() {
+        if (!prefManager.kidnappingMode) return
+        prefManager.kidnappingMode = false
+        updateKidnappingButtonState()
+        resetKidnappingPath()
     }
 }

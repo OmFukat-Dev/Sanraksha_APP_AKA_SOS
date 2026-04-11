@@ -11,30 +11,31 @@ object PermissionHelper {
     const val PERMISSION_REQUEST_CODE = 100
     const val LOCATION_PERMISSION_REQUEST_CODE = 101
 
-    private fun requiredPermissions(): Array<String> {
+    private fun monitoringPermissions(needsMicrophone: Boolean): Array<String> {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.SEND_SMS,
-            Manifest.permission.CALL_PHONE,
-            Manifest.permission.RECORD_AUDIO
+            Manifest.permission.SEND_SMS
         )
+        if (needsMicrophone) {
+            permissions.add(Manifest.permission.RECORD_AUDIO)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         return permissions.toTypedArray()
     }
 
-    fun checkPermissions(activity: Activity): Boolean {
-        return requiredPermissions().all {
-            ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
-        }
+    fun hasRequiredMonitoringPermissions(activity: Activity, needsMicrophone: Boolean): Boolean {
+        val hasSms = hasPermission(activity, Manifest.permission.SEND_SMS)
+        val hasMic = !needsMicrophone || hasPermission(activity, Manifest.permission.RECORD_AUDIO)
+        return checkLocationPermissions(activity) && hasSms && hasMic
     }
 
-    fun requestPermissions(activity: Activity) {
+    fun requestMonitoringPermissions(activity: Activity, needsMicrophone: Boolean) {
         ActivityCompat.requestPermissions(
             activity,
-            requiredPermissions(),
+            monitoringPermissions(needsMicrophone),
             PERMISSION_REQUEST_CODE
         )
     }

@@ -16,7 +16,6 @@ class PrefManager(context: Context) {
         private const val KEY_SOUND_ENABLED = "sound_enabled"
         private const val KEY_SHAKE_SENSITIVITY = "shake_sensitivity"
         private const val KEY_DARK_MODE = "dark_mode"
-        private const val KEY_SOS_MODE = "sos_mode"
         private const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"
         private const val KEY_HIDE_SENSITIVE_INFO = "hide_sensitive_info"
         private const val KEY_REQUIRE_SOS_CONFIRMATION = "require_sos_confirmation"
@@ -54,10 +53,6 @@ class PrefManager(context: Context) {
     var darkMode: Boolean
         get() = prefs.getBoolean(KEY_DARK_MODE, false)
         set(value) = prefs.edit().putBoolean(KEY_DARK_MODE, value).apply()
-
-    var sosMode: Boolean
-        get() = prefs.getBoolean(KEY_SOS_MODE, false)
-        set(value) = prefs.edit().putBoolean(KEY_SOS_MODE, value).apply()
 
     var blockScreenshots: Boolean
         get() = prefs.getBoolean(KEY_BLOCK_SCREENSHOTS, true)

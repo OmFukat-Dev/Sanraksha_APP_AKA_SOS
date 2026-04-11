@@ -18,7 +18,7 @@ class SMSHelper(private val context: Context) {
                 return false
             }
 
-            val smsManager = context.getSystemService(SmsManager::class.java)
+            val smsManager = context.getSystemService(SmsManager::class.java) ?: return false
             val parts = smsManager.divideMessage(message)
             if (parts.size > 1) {
                 smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)

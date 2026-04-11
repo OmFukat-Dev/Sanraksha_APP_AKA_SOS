@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.ProcessLifecycleOwner
 import com.sanraksha.sosapp.R
 import com.sanraksha.sosapp.database.AppDatabase
 import com.sanraksha.sosapp.utils.PrefManager
@@ -39,7 +38,6 @@ class SOSMonitoringService : Service() {
     private var voiceDetector: VoiceDetector? = null
     private var soundDetector: SoundDetector? = null
     private var lastTriggerAtMs: Long = 0L
-    private var kidnappingTrackingStarted = false
     private var micAllowed = false
     private var outboxJob: kotlinx.coroutines.Job? = null
 
@@ -78,12 +76,12 @@ class SOSMonitoringService : Service() {
 
     private fun startMonitoring() {
         if (!prefManager.safetyMode && !prefManager.kidnappingMode) {
+            stopMonitoring()
             stopSelf()
             return
         }
 
-        if (prefManager.kidnappingMode && !kidnappingTrackingStarted) {
-            kidnappingTrackingStarted = true
+        if (prefManager.kidnappingMode && !sosTriggerManager.isKidnappingTrackingActive()) {
             serviceScope.launch {
                 val userId = prefManager.userId ?: return@launch
                 val user = withContext(Dispatchers.IO) {
@@ -91,6 +89,8 @@ class SOSMonitoringService : Service() {
                 } ?: return@launch
                 sosTriggerManager.startKidnappingTracking(userId, user.name)
             }
+        } else if (!prefManager.kidnappingMode && sosTriggerManager.isKidnappingTrackingActive()) {
+            sosTriggerManager.stopKidnappingTracking()
         }
 
         val triggerCallback: () -> Unit = trigger@{
@@ -107,8 +107,8 @@ class SOSMonitoringService : Service() {
             Unit
         }
 
-        if (prefManager.safetyMode) {
-            if (prefManager.shakeEnabled && shakeDetector == null) {
+        if (prefManager.safetyMode && prefManager.shakeEnabled) {
+            if (shakeDetector == null) {
                 try {
                     shakeDetector = ShakeDetector(this, triggerCallback).also {
                         it.setSensitivity(prefManager.shakeSensitivity)
@@ -118,22 +118,35 @@ class SOSMonitoringService : Service() {
                     shakeDetector = null
                 }
             }
+        } else {
+            shakeDetector?.stop()
+            shakeDetector = null
+        }
 
-            if (micAllowed && prefManager.voiceEnabled && voiceDetector == null) {
+        if (prefManager.safetyMode && micAllowed && prefManager.voiceEnabled) {
+            if (voiceDetector == null) {
                 try {
                     voiceDetector = VoiceDetector(this, triggerCallback).also { it.start() }
                 } catch (e: Exception) {
                     voiceDetector = null
                 }
             }
+        } else {
+            voiceDetector?.stop()
+            voiceDetector = null
+        }
 
-            if (micAllowed && prefManager.soundEnabled && soundDetector == null) {
+        if (prefManager.safetyMode && micAllowed && prefManager.soundEnabled) {
+            if (soundDetector == null) {
                 try {
-                soundDetector = SoundDetector(this, triggerCallback).also { it.start() }
+                    soundDetector = SoundDetector(this, triggerCallback).also { it.start() }
                 } catch (e: Exception) {
                     soundDetector = null
                 }
             }
+        } else {
+            soundDetector?.stop()
+            soundDetector = null
         }
 
         startOutboxFlushLoop()
@@ -150,7 +163,6 @@ class SOSMonitoringService : Service() {
         soundDetector = null
 
         sosTriggerManager.stopKidnappingTracking()
-        kidnappingTrackingStarted = false
 
         outboxJob?.cancel()
         outboxJob = null

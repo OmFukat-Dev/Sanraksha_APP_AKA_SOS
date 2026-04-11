@@ -1,5 +1,6 @@
 package com.sanraksha.sosapp.activities
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -7,20 +8,26 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.sanraksha.sosapp.R
 import com.sanraksha.sosapp.utils.PrefManager
 import com.sanraksha.sosapp.utils.ThemeUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var seekBarSensitivity: SeekBar
     private lateinit var tvSensitivity: TextView
-    private lateinit var switchSOSMode: SwitchMaterial
     private lateinit var switchDarkMode: SwitchMaterial
     private lateinit var switchBlockScreenshots: SwitchMaterial
     private lateinit var switchHideSensitiveInfo: SwitchMaterial
@@ -49,7 +56,6 @@ class SettingsActivity : AppCompatActivity() {
     private fun initViews() {
         seekBarSensitivity = findViewById(R.id.seekBarSensitivity)
         tvSensitivity = findViewById(R.id.tvSensitivity)
-        switchSOSMode = findViewById(R.id.switchSOSMode)
         switchDarkMode = findViewById(R.id.switchDarkMode)
         switchBlockScreenshots = findViewById(R.id.switchBlockScreenshots)
         switchHideSensitiveInfo = findViewById(R.id.switchHideSensitiveInfo)
@@ -79,10 +85,6 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
-
-        switchSOSMode.setOnCheckedChangeListener { _, isChecked ->
-            prefManager.sosMode = isChecked
-        }
 
         switchDarkMode.setOnCheckedChangeListener { _, isChecked ->
             if (isInitializing) return@setOnCheckedChangeListener
@@ -153,7 +155,6 @@ class SettingsActivity : AppCompatActivity() {
         }
         tvSensitivity.text = sensitivity
 
-        switchSOSMode.isChecked = prefManager.sosMode
         switchDarkMode.isChecked = prefManager.darkMode
         switchBlockScreenshots.isChecked = prefManager.blockScreenshots
         switchHideSensitiveInfo.isChecked = prefManager.hideSensitiveInfo
@@ -201,26 +202,82 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun shareApp() {
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Sanraksha Alert - Emergency SOS App")
-            putExtra(Intent.EXTRA_TEXT, "Check out Sanraksha Alert, a life-saving emergency SOS app!")
+        lifecycleScope.launch {
+            val apkUri = withContext(Dispatchers.IO) { exportShareableApk() }
+            if (apkUri == null) {
+                Toast.makeText(
+                    this@SettingsActivity,
+                    "Unable to prepare APK for sharing on this device.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/vnd.android.package-archive"
+                putExtra(Intent.EXTRA_SUBJECT, "Sanraksha Alert APK")
+                putExtra(Intent.EXTRA_TEXT, "Sharing the Sanraksha Alert app APK.")
+                putExtra(Intent.EXTRA_STREAM, apkUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            launchExternalIntent(
+                Intent.createChooser(shareIntent, "Share app APK"),
+                "No app available to share the APK."
+            )
         }
-        startActivity(Intent.createChooser(shareIntent, "Share via"))
     }
 
     private fun rateApp() {
         try {
             val uri = Uri.parse("market://details?id=${packageName}")
             startActivity(Intent(Intent.ACTION_VIEW, uri))
-        } catch (e: Exception) {
+        } catch (_: ActivityNotFoundException) {
             val uri = Uri.parse("https://play.google.com/store/apps/details?id=${packageName}")
-            startActivity(Intent(Intent.ACTION_VIEW, uri))
+            launchExternalIntent(
+                Intent(Intent.ACTION_VIEW, uri),
+                "No browser available to open the Play Store page."
+            )
         }
     }
 
     private fun openPrivacyPolicy() {
         val uri = Uri.parse("https://sanrakshaalert.com/privacy")
-        startActivity(Intent(Intent.ACTION_VIEW, uri))
+        launchExternalIntent(
+            Intent(Intent.ACTION_VIEW, uri),
+            "No browser available to open the privacy policy."
+        )
+    }
+
+    private fun launchExternalIntent(intent: Intent, errorMessage: String) {
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun exportShareableApk(): Uri? {
+        return runCatching {
+            val sourcePath = applicationInfo.publicSourceDir?.takeIf { it.isNotBlank() }
+                ?: applicationInfo.sourceDir
+            val sourceFile = File(sourcePath)
+            if (!sourceFile.exists()) {
+                return null
+            }
+
+            val shareDir = File(cacheDir, "shared_apk").apply { mkdirs() }
+            val apkFile = File(shareDir, "Sanraksha-Alert.apk")
+            sourceFile.inputStream().use { input ->
+                apkFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                apkFile
+            )
+        }.getOrNull()
     }
 }

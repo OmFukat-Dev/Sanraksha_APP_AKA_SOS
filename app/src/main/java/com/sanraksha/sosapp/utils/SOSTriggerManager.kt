@@ -46,6 +46,10 @@ class SOSTriggerManager(private val context: Context) {
     private val kidnappingUpdateIntervalMs = 5 * 60 * 1000L
     private val maxChainPointsForSms = 12
 
+    fun isKidnappingTrackingActive(): Boolean {
+        return kidnappingUpdatesJob?.isActive == true
+    }
+
     fun triggerSOS(userId: String, userName: String, kidnappingMode: Boolean) {
         scope.launch {
             try {
@@ -58,6 +62,7 @@ class SOSTriggerManager(private val context: Context) {
                 }
 
                 if (contacts.isEmpty()) {
+                    stopSiren()
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "No emergency contacts found", Toast.LENGTH_SHORT).show()
                     }
@@ -125,7 +130,7 @@ class SOSTriggerManager(private val context: Context) {
     }
 
     fun stopSiren() {
-        mediaPlayer?.stop()
+        runCatching { mediaPlayer?.stop() }
         mediaPlayer?.release()
         mediaPlayer = null
     }
@@ -143,7 +148,9 @@ class SOSTriggerManager(private val context: Context) {
             }
             context.startActivity(intent)
         } catch (e: SecurityException) {
-            Toast.makeText(context, "Call permission denied", Toast.LENGTH_SHORT).show()
+            mainHandler.post {
+                Toast.makeText(context, "Call permission denied", Toast.LENGTH_SHORT).show()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -268,17 +275,19 @@ class SOSTriggerManager(private val context: Context) {
     fun stopKidnappingTracking() {
         val contacts = kidnappingContacts
         val userName = kidnappingUserName
+        val historySnapshot = kidnappingLocationHistory.toMutableList()
 
         kidnappingUpdatesJob?.cancel()
         kidnappingUpdatesJob = null
 
-        if (contacts.isNotEmpty() && kidnappingLocationHistory.isNotEmpty()) {
+        if (contacts.isNotEmpty() && historySnapshot.isNotEmpty()) {
             scope.launch {
+                val finalHistory = historySnapshot.toMutableList()
                 val latest = getReliableLocation(freshFirst = true)
                 if (latest != null) {
-                    addKidnappingPoint(latest)
+                    finalHistory.add(latest)
                 }
-                val finalPath = buildPathLink(kidnappingLocationHistory, maxPathPointsForLink)
+                val finalPath = buildPathLink(finalHistory, maxPathPointsForLink)
                 val finalMsg = "Kidnapping Tracking Stopped for $userName. Final Path: $finalPath"
                 withContext(Dispatchers.IO) {
                     smsDispatcher.sendBulk(contacts, finalMsg)
@@ -288,6 +297,8 @@ class SOSTriggerManager(private val context: Context) {
         }
 
         kidnappingLocationHistory.clear()
+        pathStore.clear()
+        appContext.sendBroadcast(KidnappingPathEvents.buildResetIntent(appContext))
         lastFixLatLon = null
         lastFixTimeMs = 0L
         lastSpeedKmh = 0.0
@@ -481,6 +492,9 @@ class SOSTriggerManager(private val context: Context) {
     }
 
     fun shutdown() {
+        stopSiren()
+        stopSosLocationUpdates()
+        stopKidnappingTracking()
         scope.cancel()
     }
 }
